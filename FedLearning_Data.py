@@ -1,51 +1,83 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[236]:
+# In[148]:
 
 
 from tensorflow.keras.datasets import mnist
 import numpy as np
 import math as m
 import random
-(train_images, train_labels), (test_images, test_labels) = mnist.load_data()
 
 
-# In[237]:
+# In[ ]:
 
 
-d = []
-for i in range(10):
-    d.append(train_images[train_labels == i])
+import numpy as np
 
 
-# In[238]:
+# In[114]:
 
 
-def get_data(nif, n_client = 4, n_class = 8):
-    """non-independence factor is 0.0 to 1.0. Basically 0.0 means complete independence while 1.0 means that all the models are fed with the same data.
-    Try to make n_class a multiple of n_client
-    ccr is the class-to-client ratio, 
+def get_general(labels, alpha, n_client, nrlabels):
+    #getting the number of pieces of data that is general to the clients
+    n_general = {}
+    for i in nrlabels:
+        n_general[i] = round(alpha / (n_client - 1) * np.sum(labels == i))
+    return n_general
+
+
+# In[146]:
+
+
+def get_labels(nif, labels, assignment, seed = None):
+    """returns a list of ndarrays, the nth list contains 0s and 1s to show which data are selected for the (n+1)th client.
     
-    returns two lists, one containing n_client training data sets, the other containing n_class label sets
-    each training data set and label set is a ndarray"""
-    data_set = []
-    data_labels = []
-    ccr = m.floor(n_class / n_client)
+    nif is the none independence factor. 0 means that the datasets returned for each client are completely independent from each other,
+    while an nif of 1 means that all the clients have datasets from the same data distributions. for example, when nif is 0 and we have 
+    2 clients and four classes, the first client will only have data from two classes, while the second one only has data from the other
+    two classes. if it takes on some value between 0 and 1: each dataset will contain more of the classes they are assigned in assignment,
+    and some of the other classes.
+    
+    labels is the (either ndarray or list) of the labels in the training dataset.
+    
+    assignment is a (either a list of lists or ndarray) containing the labels for emphasized datasets of each client.
+    eg. [[0, 1], [2, 3]] or [['cats', 'dogs'], ['frogs', 'pandas']]. these will be the datasets assigned to each client if nif equaled 0.
+    the clients will be fed more data for these classes unless nif == 1.
+    
+    seed is the seed used for random functions, to make sure that identical results are obtainable.
+    """
+    #getting the length of labels and the number of clients
+    if (type(labels) == list):
+        labels = np.array(labels)
+    n_data = labels.shape[0]
+    assignment = np.array(assignment)
+    
+    
+    #the different elements in labels
+    if (type(assignment) == list):
+        assignment = np.array(assignment)
+    n_client = assignment.shape[0]
+    nrlabels = assignment.reshape(-1)
     alpha = nif - nif / n_client
+    n_general = get_general(labels, alpha, n_client, nrlabels)
+    results = []
     for i in range(n_client):
-        data = np.empty((1, 28, 28))
-        label = np.array([])
-        for j in range(n_class):
-            if (j > ccr * i - 1 and j < ccr * i + ccr):
-                n_data = round((1 - alpha) * d[j].shape[0])
-                index = random.sample(sorted(range(d[j].shape[0])), n_data)
-            else:
-                n_data = round(alpha / (n_client - 1) * d[j].shape[0])
-                index = random.sample(sorted(range(d[j].shape[0])), n_data)
-            data = np.append(data, d[j][index], 0)
-            label = np.append(label, j * np.ones(n_data))
-        data_set.append(data[1:])
-        data_labels.append(label)
-    return (data_set, data_labels)
+        results.append(np.zeros_like(labels))
+    
+    
+    #set the random seed
+    if (seed != None):
+        np.random.seed(seed)
+    
+    
+    #assign data without repitition by shuffling 
+    for i in nrlabels:
+        temp = np.array(np.where(labels == i)[0])
+        np.random.shuffle(temp)        
+        for j in range(n_client):
+            results[j][temp[j * n_general[i] : (j + 1) * n_general[i]]] = 1
+            if (np.in1d(i, assignment[j])):
+                results[j][temp[n_client * n_general[i]:]] = 1
+    return results
 
